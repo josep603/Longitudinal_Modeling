@@ -1,0 +1,157 @@
+---
+title: "Longitudinal Evaluation of Itraconazole versus Terbinafine on Onycholysis Severity: A GEE and GLMM Analysis"
+author: "Bibin Joseph"
+format: pdf
+fontsize: 9pt
+editor: visual
+---
+
+## **Introduction**
+
+This study evaluates treatment differences over time in a randomized clinical trial comparing two antifungal therapies—Itraconazole and Terbinafine—for toenail infections. A total of 294 patients were enrolled, and prior to treatment, each participant’s nail condition was assessed to determine the severity of onycholysis, which is defined as the degree of separation of the nail plate from the nail bed. Patients were classified into one of two categories: no/mild onycholysis or moderate/severe onycholysis.
+
+Following the baseline evaluation, patients received one of the two treatments and were subsequently monitored at multiple time points—specifically at weeks 4, 8, 12, 24, 36, and 48 post-baseline. The longitudinal data are organized in a long format, with repeated measures of the binary outcome (onycholysis: 1 = moderate/severe, 0 = none/mild) recorded for each subject across seven visits (with the first visit corresponding to baseline).
+
+The primary objective of this analysis is to compare the effects of Itraconazole and Terbinafine on the changes in the odds of experiencing moderate or severe onycholysis over the course of the study. To achieve this, we employ advanced statistical methods, including generalized estimating equations (GEE) and generalized linear mixed models (GLMM), to appropriately account for the correlated nature of repeated measures within subjects.
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+#Load Libraries and Data
+
+library(lme4)
+library(lmerTest)
+library(geepack)
+library(doBy)
+library(ggplot2)
+library(knitr)
+
+toe<-read.csv("toe.csv")
+
+```
+
+In our marginal model for the log odds of moderate/severe onycholysis using GEE, we aim to capture a linear time trend while allowing the treatment effect to vary over time. We assume that both treatment groups start with the same baseline log odds at month 0, and any differences between the groups emerge through their distinct time trends. Letting *txt* denote the treatment indicator (0 = Itraconazole, 1 = Terbinafine) and using *month* as the time variable, the mean model can be written as:
+
+> $\text{logit}[P(Y_{ij} = 1)] = \beta_0 + \beta_1 * \text{month}_{ij} + \beta_2 * \text{month}_{ij} * \text{treatment}_{ij}$
+
+Here:
+
+-   β0​ is the common intercept representing the log odds of moderate/severe onycholysis at baseline (month 0) for both treatment groups.
+
+-   β1​ represents the change in the log odds per month for the Itraconazole group (when txt = 0).
+
+-   β2​ is the additional change in the slope for the Terbinafine group. Thus, the overall slope for Terbinafine is β1+β2​​.
+
+This model includes three fixed-effect coefficients and fulfills the requirement of allowing different linear trends over time between the two treatments while maintaining a common baseline log odds.
+
+After fitting this model using GEE, we obtained estimates for each fixed effect along with their 95% confidence intervals. To provide the most interpretable results, we exponentiated these estimates to convert the log odds into odds ratios. The reported output includes the odds ratios for the baseline odds (intercept), the time trend for Itraconazole, and the differential time trend for Terbinafine.
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+
+# Fit the GEE model with an exchangeable working correlation
+gee_model <- geeglm(onycholysis ~ month + month:txt, id = id, data = toe, family = binomial(link = "logit"), corstr = "exchangeable")
+
+# Extract estimates, standard errors, and calculate CIs
+summary_gee <- summary(gee_model)
+estimates <- coef(summary_gee)
+exp_estimates <- exp(estimates[, 1])  # Exponentiating coefficients for odds ratios
+se <- estimates[, 2]
+lower_bound <- exp(estimates[, 1] - 1.96 * se)
+upper_bound <- exp(estimates[, 1] + 1.96 * se)
+
+# Create a summary table with combined CIs
+results_gee <- data.frame(
+  Term = rownames(estimates),
+  Estimate = round(exp_estimates, 3),
+  CI = paste0("(", round(lower_bound, 3), ", ", round(upper_bound, 3), ")")
+)
+
+# Display results as a kable table
+kable(results_gee, caption = "GEE Model Results with 95% CI for Odds Ratios",align = "c")
+```
+
+-   **Intercept(**$\beta_0$):
+
+    -   Estimate: (Odds Ratio: 0.561, 95% CI: 0.434 to 0.724): The intercept represents the odds of moderate/severe onycholysis at baseline (month = 0) for the reference treatment group (Itraconazole). The odds ratio of 0.561 indicates that, at baseline, patients in the reference group are less likely to have moderate/severe onycholysis compared to having none/mild onycholysis. The confidence interval does not include 1, suggesting that this estimate is statistically significant.
+
+-   **Month effect (**$\beta_1$​):
+
+    -   Estimate: (Odds Ratio: 0.843, 95% CI: 0.795 to 0.893). The odds ration represents the change in the odds of having moderate/severe onycholysis for each one-month increase in time for the reference treatment group (Itraconazole). The odds ratio of 0.843 suggests that, with each passing month, the odds of having moderate/severe onycholysis decrease by approximately 15.7% (1 - 0.843) in the Itraconazole group. The confidence interval does not include 1, indicating a statistically significant decrease in the odds over time.
+
+-   **Interaction term** (Month:text **-** $\beta_2$)
+
+    -   Estimate: 0.925, 95% CI: 0.833 to 1.028): The odds ratio of 0.925 suggests a slight reduction in the odds of having moderate/severe onycholysis over time for the Terbinafine group compared to the Itraconazole group. However, since the confidence interval (0.833 to 1.028) includes 1, this interaction effect is not statistically significant, indicating that the difference in the time trends between the two treatment groups may not be meaningful.
+
+    For the conditional model, we consider a generalized linear mixed model (GLMM) with random intercepts to account for patient-specific heterogeneity in the log odds of moderate/severe onycholysis. The mean model is specified as follows:
+
+> $logit[Pr(Y_{ij}​=1)]=β_0​+β_1​*month_{ij}​+β_2​*month_{ij}​*treatment_{ij}​+u_i$​
+
+where:
+
+-   β0​ is the common intercept representing the baseline log odds of moderate/severe onycholysis (at month 0) for both treatment groups,
+
+-   β1​ is the fixed effect for the linear time trend (in months) for the reference treatment group (e.g., Itraconazole),
+
+-   β2​ captures the differential effect of time for the Terbinafine group (i.e., the additional change in the slope relative to the reference group),
+
+-   u_i​ is the random intercept for subject i, assumed to be normally distributed with mean 0 and variance σu2.
+
+This model includes three fixed-effect coefficients and one random effect, allowing each treatment group to have distinct time trends while assuming no difference between the groups at baseline.
+
+We fit the specified GLMM using a logistic link to model the patient-specific log odds of moderate/severe onycholysis, with the following formulation:
+
+logit[P(Yij=1)]=β0+β1⋅monthij+β2⋅(monthij×treatmentij)+ui​
+
+In this analysis, the model is estimated while accounting for the correlation among repeated measurements for each patient through the inclusion of a random intercept ui​. The fixed effects in the model are:
+
+-   The intercept (β0​), representing the baseline log odds of moderate/severe onycholysis for both treatment groups,
+
+-   The time effect (β1) for the reference treatment group,
+
+-   The interaction term (β2​), which represents the additional change in the time effect for the Terbinafine group relative to the reference.
+
+After fitting the model, we report the estimates and 95% confidence intervals for all fixed effects. For interpretability, the fixed-effect estimates (originally on the log odds scale) are exponentiated to yield odds ratios. This provides a clear understanding of the baseline odds and the multiplicative effect of each additional month on the odds of moderate/severe onycholysis for both treatment groups. No further interpretation is provided here.
+
+```{r,,echo=FALSE,message=FALSE,warning=FALSE}
+
+# Fit the GLMM model with random intercepts and interaction term
+glmm_model <- glmer(
+  onycholysis ~ month + month:txt + (1 | id),
+  data = toe,
+  family = binomial(link = "logit"),
+  nAGQ = 50
+)
+
+# Extract the summary
+glmm_summary <- summary(glmm_model)
+# Extract fixed effects from the GLMM model summary
+fixed_effects <- summary(glmm_model)$coefficients
+
+# Calculate exponentiated estimates (odds ratios) and 95% confidence intervals
+exp_estimates <- exp(fixed_effects[, "Estimate"])
+se <- fixed_effects[, "Std. Error"]
+lower_bound <- exp(fixed_effects[, "Estimate"] - 1.96 * se)
+upper_bound <- exp(fixed_effects[, "Estimate"] + 1.96 * se)
+
+# Create a summary table with combined CIs
+glmm_table <- data.frame(
+  Term = rownames(fixed_effects),
+  Estimate = round(exp_estimates, 3),
+  CI = paste0("(", round(lower_bound, 3), ", ", round(upper_bound, 3), ")")
+)
+
+# Display results as a kable table
+kable(glmm_table, caption = "GLMM Model Results with 95% CI for Odds Ratios",align = "c",row.names = F)
+```
+
+**Intercept (**$\beta_0$) **- Odds Ratio: 0.183, 95% CI: ( 0.096 to 0.35)**: The odds of having moderate/severe onycholysis at baseline (month = 0) for the reference group (Itraconazole). An odds ratio of 0.183 suggests that, at baseline, patients in the Itraconazole group have low odds of experiencing moderate/severe onycholysis. The confidence interval does not include 1, indicating that this estimate is statistically significant.
+
+**Month effect (**$\beta_1$) - **Odds Ratio: 0.678, 95% CI: ( 0.623 to 0.738)**: The change in the odds of having moderate/severe onycholysis per one-month increase in time for the reference group (Itraconazole). An odds ratio of 0.678 suggests that, for each additional month, the odds of moderate/severe onycholysis decrease by approximately 32.2% (1 - 0.678) in the Itraconazole group. The confidence interval does not include 1, indicating a statistically significant reduction in the odds over time.
+
+**Interaction term** (Month:Treatment - $\beta_2$) - **Odds Ratio: 0.867, 95% CI: (0.764 to 0.985)** The odds ratio represents the difference in the time effect for the Terbinafine group compared to the Itraconazole group. An odds ratio of 0.867 indicates that the odds of moderate/severe onycholysis over time decrease at a slightly faster rate in the Terbinafine group compared to the Itraconazole group. The confidence interval just barely includes 1, suggesting this effect is marginally statistically significant.
+
+The GEE model yielded an odds ratio of 0.925 (95% CI: 0.833 to 1.028) for the interaction between treatment and time, indicating a small and non-statistically significant reduction in the odds of moderate/severe onycholysis for the Terbinafine group relative to the Itraconazole group over time. The GLMM model provided an odds ratio of 0.867 (95% CI: 0.764 to 0.985), suggesting a stronger reduction in the odds of moderate/severe onycholysis for the Terbinafine group compared to the Itraconazole group, and this result is closer to achieving statistical significance.
+
+The discrepancies between the GEE and GLMM estimates stem from their fundamental differences in modeling approach. GEE, a marginal model, focuses on population-averaged effects, considering the average treatment impact across all individuals. While it accounts for within-subject correlations, it primarily estimates the average effect. In contrast, GLMM, a mixed-effects model, models individual-specific responses, incorporating random effects to capture subject-level variability. This allows GLMM to potentially identify stronger treatment effects, especially when there's significant heterogeneity among individuals. Consequently, GLMM may reveal more pronounced treatment effects, particularly when individual responses vary considerably over time.
+
+### Conclusion
+
+The choice between GEE and GLMM depends on the specific context and the level of inference desired. For making decisions at the population or group level, such as a hospital deciding on a formulary drug, the GEE model is more suitable. It provides population-averaged estimates, reflecting the average treatment effect across all patients. In contrast, for individual-level decisions, like a physician choosing a treatment for a specific patient, the GLMM model is more appropriate. It provides subject-specific estimates, accounting for individual variability and offering a more personalized view of treatment effectiveness. In essence, GEE is ideal for understanding average population effects, while GLMM excels in providing detailed insights for individual-level treatment decisions.
